@@ -1,0 +1,65 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: schedule
+
+  datasource:
+    url: jdbc:postgresql://192.168.112.16:5436/quartz_scheduler
+    username: postgres
+    password: Bunrath07@
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  quartz:
+    job-store-type: jdbc
+
+    jdbc:
+      initialize-schema: always
+
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: ScheduleScheduler
+            instanceId: AUTO
+
+          jobStore:
+            dataSource: quartzDS
+            class: org.quartz.impl.jdbcjobstore.JobStoreTX
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+            tablePrefix: QRTZ_
+            isClustered: false
+          dataSource:
+            quartzDS:
+              driver: org.postgresql.Driver
+              URL: ${spring.datasource.url}
+              user: ${spring.datasource.username}
+              password: ${spring.datasource.password}
+              maxConnections: 10
+              provider: hikaricp
+
+          threadPool:
+            class: org.quartz.simpl.SimpleThreadPool
+            threadCount: 10
+            threadPriority: 5
+
+  mail:
+    host: smtp.gmail.com   # or your SMTP provider
+    port: 587
+    username: your-email@example.com
+    password: your-app-password
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
