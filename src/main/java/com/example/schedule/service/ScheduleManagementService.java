@@ -208,7 +208,8 @@ public class ScheduleManagementService {
     private CronScheduleBuilder buildCronSchedule(SchedulerConfig config) {
         CronScheduleBuilder builder = CronScheduleBuilder
                 .cronSchedule(config.getCronExpression())
-                .withMisfireHandlingInstructionDoNothing();
+//                .withMisfireHandlingInstructionDoNothing(); // mean when misfired it do nothing
+                .withMisfireHandlingInstructionFireAndProceed(); // means run the missed trigger once after recovery.
 
         if (config.getTimezone() != null && !config.getTimezone().isBlank()) {
             builder = builder.inTimeZone(TimeZone.getTimeZone(config.getTimezone()));

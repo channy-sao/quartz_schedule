@@ -6,7 +6,7 @@ spring:
     name: schedule
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/quartz_scheduler
+    url: jdbc:postgresql://localhost:5432/scheduler
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
