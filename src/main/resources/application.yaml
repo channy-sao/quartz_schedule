@@ -38,6 +38,7 @@ spring:
             driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
             tablePrefix: QRTZ_
             isClustered: false
+            misfireThreshold: 60000
           dataSource:
             quartzDS:
               driver: org.postgresql.Driver

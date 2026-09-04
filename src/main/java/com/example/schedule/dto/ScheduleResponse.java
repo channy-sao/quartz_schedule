@@ -11,6 +11,9 @@ public record ScheduleResponse(
         String triggerState,
         Instant nextFireTime,
         Instant previousFireTime,
+        String lastExecutionStatus,
+        Long lastExecutionDurationMs,
+        long failureCount,
         String createdBy,
         String updatedBy,
         Instant updatedAt

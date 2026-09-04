@@ -32,6 +32,9 @@ public class SchedulerConfig {
     @Column(name = "timezone")
     private String timezone;
 
+    @Column(name = "timeout_seconds", nullable = false)
+    private int timeoutSeconds = 300; // Default 5 minutes
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "job_data", columnDefinition = "jsonb")
     private String jobData; // serialized JSON: message, recipient, webhookUrl, etc.
@@ -91,4 +94,6 @@ public class SchedulerConfig {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public int getVersion() { return version; }
+    public int getTimeoutSeconds() { return timeoutSeconds; }
+    public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
 }

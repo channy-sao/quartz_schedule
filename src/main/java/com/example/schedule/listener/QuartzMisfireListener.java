@@ -1,12 +1,15 @@
 package com.example.schedule.listener;
 
 import com.example.schedule.service.JobAlertService;
+import com.example.schedule.service.JobExecutionAuditService;
 import org.quartz.JobExecutionContext;
 import org.quartz.Trigger;
 import org.quartz.TriggerListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
+import java.time.Instant;
 
 @Component
 public class QuartzMisfireListener implements TriggerListener {
@@ -15,9 +18,11 @@ public class QuartzMisfireListener implements TriggerListener {
             LoggerFactory.getLogger(QuartzMisfireListener.class);
 
     private final JobAlertService alertService;
+    private final JobExecutionAuditService auditService;
 
-    public QuartzMisfireListener(JobAlertService alertService) {
+    public QuartzMisfireListener(JobAlertService alertService, JobExecutionAuditService auditService) {
         this.alertService = alertService;
+        this.auditService = auditService;
     }
 
     /**
@@ -42,6 +47,21 @@ public class QuartzMisfireListener implements TriggerListener {
 
         String jobName = trigger.getJobKey().getName();
         String triggerName = trigger.getKey().getName();
+        String jobType = (String) trigger.getJobDataMap().get("jobType");
+        // Correct method on org.quartz.Trigger interface
+        java.util.Date nextFireDate = trigger.getNextFireTime();
+        java.util.Date prevFireDate = trigger.getPreviousFireTime();
+
+        // Fallback logic to get the most accurate scheduled fire time
+        Instant scheduledTime;
+        if (nextFireDate != null) {
+            scheduledTime = nextFireDate.toInstant();
+        } else if (prevFireDate != null) {
+            scheduledTime = prevFireDate.toInstant();
+        } else {
+            scheduledTime = Instant.now();
+        }
+
 
         log.error(
                 "QUARTZ MISFIRE DETECTED - Job [{}], Trigger [{}], " +
@@ -50,6 +70,14 @@ public class QuartzMisfireListener implements TriggerListener {
                 triggerName,
                 trigger.getPreviousFireTime(),
                 trigger.getNextFireTime()
+        );
+
+        // 1. Record in JobExecutionLog
+        auditService.recordMisfire(
+                jobName,
+                jobType,
+                scheduledTime,
+                "Misfired: execution window missed by scheduler policy"
         );
 
         try {

@@ -4,9 +4,12 @@ import com.example.schedule.dto.CreateScheduleRequest;
 import com.example.schedule.dto.CronBuilderRequest;
 import com.example.schedule.dto.CronBuilderResponse;
 import com.example.schedule.dto.ScheduleResponse;
+import com.example.schedule.dto.SchedulerHealthResponse;
+import com.example.schedule.dto.TriggerJobResponse;
 import com.example.schedule.dto.UpdateScheduleRequest;
 import com.example.schedule.entity.SchedulerConfig;
 import com.example.schedule.service.ScheduleManagementService;
+import com.example.schedule.service.SchedulerHealthService;
 import com.example.schedule.utils.QuartzCronUtil;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -20,9 +23,11 @@ import java.util.List;
 public class SchedulerController {
 
     private final ScheduleManagementService scheduleService;
+    private final SchedulerHealthService schedulerHealthService;
 
-    public SchedulerController(ScheduleManagementService scheduleService) {
+    public SchedulerController(ScheduleManagementService scheduleService, SchedulerHealthService schedulerHealthService) {
         this.scheduleService = scheduleService;
+        this.schedulerHealthService = schedulerHealthService;
     }
 
     @PostMapping
@@ -61,14 +66,19 @@ public class SchedulerController {
     }
 
     @PostMapping("/{jobName}/trigger")
-    public ResponseEntity<?> trigger(@PathVariable String jobName) {
-        scheduleService.triggerNow(jobName);
-        return ResponseEntity.ok("Job triggered successfully");
+    public ResponseEntity<?> trigger(@PathVariable String jobName, @RequestHeader("X-User-Id") String userId) {
+        TriggerJobResponse triggerJobResponse = scheduleService.triggerNow(jobName, userId);
+        return ResponseEntity.ok(triggerJobResponse);
     }
 
     @GetMapping("/{jobName}")
     public ResponseEntity<ScheduleResponse> get(@PathVariable String jobName) {
         return ResponseEntity.ok(scheduleService.getSchedule(jobName));
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<SchedulerHealthResponse> getHealth() {
+        return ResponseEntity.ok(schedulerHealthService.getHealthStatus());
     }
 
     /**

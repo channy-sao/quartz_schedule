@@ -16,6 +16,11 @@ public class QuartzSchedulerConfiguration {
     return factory -> {
       factory.setGlobalTriggerListeners(misfireListener);
       factory.setJobFactory(jobFactory);
+      // Ensures running jobs finish executing when app terminates during deployments
+      factory.setWaitForJobsToCompleteOnShutdown(true);
+
+      // Allows Spring to manage job lifecycle delay
+      factory.setStartupDelay(5); // 5 second startup delay to allow app context initialization
     };
   }
 }

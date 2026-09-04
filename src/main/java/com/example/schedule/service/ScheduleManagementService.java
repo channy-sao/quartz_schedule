@@ -2,20 +2,25 @@ package com.example.schedule.service;
 
 import com.example.schedule.dto.CreateScheduleRequest;
 import com.example.schedule.dto.ScheduleResponse;
+import com.example.schedule.dto.TriggerJobResponse;
 import com.example.schedule.dto.UpdateScheduleRequest;
+import com.example.schedule.entity.JobExecutionLog;
 import com.example.schedule.entity.SchedulerConfig;
 import com.example.schedule.exception.ScheduleCreationException;
 import com.example.schedule.exception.ScheduleNotFoundException;
 import com.example.schedule.job.DynamicJob;
+import com.example.schedule.repository.JobExecutionLogRepository;
 import com.example.schedule.repository.SchedulerConfigRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.quartz.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TimeZone;
 
 @Service
@@ -26,10 +31,12 @@ public class ScheduleManagementService {
     private final SchedulerConfigRepository configRepository;
     private final Scheduler scheduler;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final JobExecutionLogRepository logRepository;
 
-    public ScheduleManagementService(SchedulerConfigRepository configRepository, Scheduler scheduler) {
+    public ScheduleManagementService(SchedulerConfigRepository configRepository, Scheduler scheduler, JobExecutionLogRepository logRepository) {
         this.configRepository = configRepository;
         this.scheduler = scheduler;
+        this.logRepository = logRepository;
     }
 
     @Transactional
@@ -119,12 +126,23 @@ public class ScheduleManagementService {
         configRepository.save(config);
     }
 
-    public void triggerNow(String jobName) {
+    public TriggerJobResponse triggerNow(String jobName, String triggeredBy) {
+        SchedulerConfig config = configRepository.findByJobName(jobName)
+                .orElseThrow(() -> new ScheduleNotFoundException("Schedule not found: " + jobName));
+
+        // Generate unique execution reference
+        String executionId = "EXEC-" + Instant.now().toEpochMilli();
+
+        JobDataMap dataMap = new JobDataMap();
+        dataMap.put("manualTrigger", "true");
+        dataMap.put("triggeredBy", triggeredBy != null ? triggeredBy : "SYSTEM");
+        dataMap.put("executionId", executionId);
         try {
-            scheduler.triggerJob(JobKey.jobKey(jobName));
+            scheduler.triggerJob(JobKey.jobKey(jobName),  dataMap);
         } catch (SchedulerException e) {
             throw new RuntimeException("Failed to trigger job: " + jobName, e);
         }
+        return new TriggerJobResponse(jobName, executionId, "TRIGGERED", Instant.now());
     }
 
     @Transactional(readOnly = true)
@@ -139,6 +157,13 @@ public class ScheduleManagementService {
                     ? scheduler.getTriggerState(triggerKey)
                     : Trigger.TriggerState.NONE;
 
+            // Fetch latest execution log and failure metrics
+            Optional<JobExecutionLog> lastLogOpt = logRepository.findFirstByJobNameOrderByStartedAtDesc(jobName);
+            long failureCount = logRepository.countByJobNameAndStatus(jobName, "FAILED");
+
+            String lastExecutionStatus = lastLogOpt.map(JobExecutionLog::getStatus).orElse("NEVER_EXECUTED");
+            Long durationMs = calculateDurationMs(lastLogOpt.orElse(null));
+
             return new ScheduleResponse(
                     config.getJobName(),
                     config.getBusinessName(),
@@ -148,6 +173,9 @@ public class ScheduleManagementService {
                     state.name(),
                     trigger != null ? toInstant(trigger.getNextFireTime()) : null,
                     trigger != null ? toInstant(trigger.getPreviousFireTime()) : null,
+                    lastExecutionStatus,
+                    durationMs,
+                    failureCount,
                     config.getCreatedBy(),
                     config.getUpdatedBy(),
                     config.getUpdatedAt()
@@ -262,5 +290,12 @@ public class ScheduleManagementService {
 
     private Instant toInstant(java.util.Date date) {
         return date == null ? null : date.toInstant();
+    }
+
+    private Long calculateDurationMs(JobExecutionLog log) {
+        if (log == null || log.getStartedAt() == null || log.getCompletedAt() == null) {
+            return null;
+        }
+        return Duration.between(log.getStartedAt(), log.getCompletedAt()).toMillis();
     }
 }

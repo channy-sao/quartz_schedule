@@ -34,6 +34,21 @@ public class JobExecutionAuditService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordMisfire(String jobName, String jobType, Instant scheduledFireTime, String reason) {
+        JobExecutionLog log = new JobExecutionLog(
+                jobName,
+                jobType != null ? jobType : "UNKNOWN",
+                scheduledFireTime != null ? scheduledFireTime : Instant.now(),
+                1,
+                "MISFIRED",
+                "MISFIRE-" + System.currentTimeMillis()
+        );
+        log.setCompletedAt(Instant.now());
+        log.setErrorMessage(reason);
+        repository.save(log);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailure(Long logId, Throwable error) {
         repository.findById(logId).ifPresent(l -> {
             l.setStatus("FAILED");
