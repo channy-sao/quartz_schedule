@@ -316,17 +316,20 @@ public final class QuartzCronUtil {
         String hours =
                 requireValue(request.hours(), "hours");
 
-        String dayOfMonth =
-                requireValue(
-                        request.dayOfMonthExpression(),
-                        "dayOfMonthExpression"
-                );
+        String dayOfMonth = requireValue(request.dayOfMonthExpression(), "dayOfMonthExpression");
+        String dayOfWeek = requireValue(request.dayOfWeek(), "dayOfWeek");
+
+        boolean domIsWildcard = dayOfMonth.equals("?");
+        boolean dowIsWildcard = dayOfWeek.equals("?");
+
+        if (!domIsWildcard && !dowIsWildcard) {
+            throw new IllegalArgumentException(
+                    "Quartz cron requires either dayOfMonthExpression or dayOfWeek to be '?' — both cannot be specific values at once.");
+        }
 
         String month =
                 requireValue(request.month(), "month");
 
-        String dayOfWeek =
-                requireValue(request.dayOfWeek(), "dayOfWeek");
 
         String expression = String.join(
                 " ",

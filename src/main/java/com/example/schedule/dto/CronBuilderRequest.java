@@ -8,87 +8,75 @@ import java.util.List;
 
 public record CronBuilderRequest(
 
-        @NotNull
-        CronScheduleType type,
-
-        /**
-         * Timezone used when calculating next execution.
-         *
-         * Example:
-         * Asia/Phnom_Penh
-         */
+        @NotNull CronScheduleType type,
         String timezone,
-
-        /**
-         * Time for DAILY / WEEKLY / MONTHLY / YEARLY.
-         *
-         * Example:
-         * 09:30
-         */
         String time,
-
-        /**
-         * Days for WEEKLY.
-         *
-         * Example:
-         * ["MON", "WED", "FRI"]
-         */
         List<String> daysOfWeek,
-
-        /**
-         * Day of month for MONTHLY / YEARLY.
-         *
-         * Supports Quartz values:
-         *
-         * 1
-         * 15
-         * L
-         * LW
-         * 15W
-         * L-3
-         */
         String dayOfMonth,
-
-        /**
-         * Specific date for SPECIFIC_DATE.
-         *
-         * Example:
-         * 2026-09-15
-         */
         LocalDate date,
-
-        /**
-         * Specific time for SPECIFIC_DATE.
-         *
-         * Example:
-         * 09:30
-         */
         String specificTime,
-
-        /**
-         * Custom Quartz Cron fields.
-         */
         String seconds,
-
         String minutes,
-
         String hours,
-
         String dayOfMonthExpression,
-
         String month,
-
         String dayOfWeek,
-
-        /**
-         * Optional Quartz year.
-         *
-         * Example:
-         * 2026
-         * 2026-2030
-         * *
-         */
         String year
 
 ) {
+
+        // ---- Named factory methods: no more positional-null guessing ----
+
+        public static CronBuilderRequest everySecond() {
+                return new CronBuilderRequest(CronScheduleType.EVERY_SECOND,
+                        null, null, null, null, null, null, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest everyMinute() {
+                return new CronBuilderRequest(CronScheduleType.EVERY_MINUTE,
+                        null, null, null, null, null, null, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest everyHour() {
+                return new CronBuilderRequest(CronScheduleType.EVERY_HOUR,
+                        null, null, null, null, null, null, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest daily(String time, String timezone) {
+                return new CronBuilderRequest(CronScheduleType.DAILY,
+                        timezone, time, null, null, null, null, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest weekly(List<String> daysOfWeek, String time, String timezone) {
+                return new CronBuilderRequest(CronScheduleType.WEEKLY,
+                        timezone, time, daysOfWeek, null, null, null, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest monthly(String dayOfMonth, String time, String timezone) {
+                return new CronBuilderRequest(CronScheduleType.MONTHLY,
+                        timezone, time, null, dayOfMonth, null, null, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest yearly(String dayOfMonth, String month, String time, String timezone) {
+                return new CronBuilderRequest(CronScheduleType.YEARLY,
+                        timezone, time, null, dayOfMonth, null, null, null, null, null, null, month, null, null);
+        }
+
+        public static CronBuilderRequest specificDate(LocalDate date, String specificTime, String timezone) {
+                return new CronBuilderRequest(CronScheduleType.SPECIFIC_DATE,
+                        timezone, null, null, null, date, specificTime, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest specificTime(String time, String timezone) {
+                return new CronBuilderRequest(CronScheduleType.SPECIFIC_TIME,
+                        timezone, null, null, null, null, time, null, null, null, null, null, null, null);
+        }
+
+        public static CronBuilderRequest custom(String seconds, String minutes, String hours,
+                                                String dayOfMonthExpression, String month, String dayOfWeek,
+                                                String year, String timezone) {
+                return new CronBuilderRequest(CronScheduleType.CUSTOM,
+                        timezone, null, null, null, null, null,
+                        seconds, minutes, hours, dayOfMonthExpression, month, dayOfWeek, year);
+        }
 }

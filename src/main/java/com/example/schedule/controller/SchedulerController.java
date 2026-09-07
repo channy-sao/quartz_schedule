@@ -3,11 +3,13 @@ package com.example.schedule.controller;
 import com.example.schedule.dto.CreateScheduleRequest;
 import com.example.schedule.dto.CronBuilderRequest;
 import com.example.schedule.dto.CronBuilderResponse;
+import com.example.schedule.dto.CronDescribeRequest;
 import com.example.schedule.dto.ScheduleResponse;
 import com.example.schedule.dto.SchedulerHealthResponse;
 import com.example.schedule.dto.TriggerJobResponse;
 import com.example.schedule.dto.UpdateScheduleRequest;
 import com.example.schedule.entity.SchedulerConfig;
+import com.example.schedule.service.CronBuilderService;
 import com.example.schedule.service.ScheduleManagementService;
 import com.example.schedule.service.SchedulerHealthService;
 import com.example.schedule.utils.QuartzCronUtil;
@@ -90,37 +92,19 @@ public class SchedulerController {
     public ResponseEntity<CronBuilderResponse> generateCron(
             @Valid @RequestBody CronBuilderRequest request) {
 
-        String cronExpression =
-                QuartzCronUtil.build(request);
+        return ResponseEntity.ok(CronBuilderService.buildResponse(request));
+    }
 
-        String timezone =
-                request.timezone() == null
-                        || request.timezone().isBlank()
-                        ? "Asia/Phnom_Penh"
-                        : request.timezone();
+    /**
+     * Describe an existing Quartz Cron expression in plain English
+     * and show its upcoming fire times.
+     *
+     * POST /api/schedules/cron/describe
+     */
+    @PostMapping("/cron/describe")
+    public ResponseEntity<CronBuilderResponse> describeCron(
+            @Valid @RequestBody CronDescribeRequest request) {
 
-        ZonedDateTime nextExecution =
-                QuartzCronUtil.getNextExecution(
-                        cronExpression,
-                        timezone
-                );
-
-        List<ZonedDateTime> nextExecutions =
-                QuartzCronUtil.getNextExecutions(
-                        cronExpression,
-                        timezone,
-                        5
-                );
-
-        return ResponseEntity.ok(
-                new CronBuilderResponse(
-                        true,
-                        request.type().name(),
-                        cronExpression,
-                        timezone,
-                        nextExecution,
-                        nextExecutions
-                )
-        );
+        return ResponseEntity.ok(CronBuilderService.describe(request));
     }
 }
