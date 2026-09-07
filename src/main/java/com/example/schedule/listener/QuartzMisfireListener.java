@@ -2,6 +2,7 @@ package com.example.schedule.listener;
 
 import com.example.schedule.service.JobAlertService;
 import com.example.schedule.service.JobExecutionAuditService;
+import com.example.schedule.service.JobMetricsService;
 import org.quartz.JobExecutionContext;
 import org.quartz.Trigger;
 import org.quartz.TriggerListener;
@@ -19,10 +20,12 @@ public class QuartzMisfireListener implements TriggerListener {
 
     private final JobAlertService alertService;
     private final JobExecutionAuditService auditService;
+    private final JobMetricsService metricsService;
 
-    public QuartzMisfireListener(JobAlertService alertService, JobExecutionAuditService auditService) {
+    public QuartzMisfireListener(JobAlertService alertService, JobExecutionAuditService auditService, JobMetricsService metricsService) {
         this.alertService = alertService;
         this.auditService = auditService;
+        this.metricsService = metricsService;
     }
 
     /**
@@ -48,6 +51,10 @@ public class QuartzMisfireListener implements TriggerListener {
         String jobName = trigger.getJobKey().getName();
         String triggerName = trigger.getKey().getName();
         String jobType = (String) trigger.getJobDataMap().get("jobType");
+
+        metricsService.recordMisfire(jobName);
+
+
         // Correct method on org.quartz.Trigger interface
         java.util.Date nextFireDate = trigger.getNextFireTime();
         java.util.Date prevFireDate = trigger.getPreviousFireTime();

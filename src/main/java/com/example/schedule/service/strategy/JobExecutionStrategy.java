@@ -22,5 +22,5 @@ public interface JobExecutionStrategy {
     }
 
 
-    void execute(JobDataMap dataMap, String idempotencyKey) throws Exception;
+    void execute(JobDataMap dataMap, String idempotencyKey);
 }

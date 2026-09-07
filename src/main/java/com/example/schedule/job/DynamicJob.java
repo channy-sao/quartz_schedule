@@ -98,14 +98,8 @@ public class DynamicJob implements Job {
                         try {
                             // Run the strategy task asynchronously to enforce timeout
                             taskFuture = CompletableFuture.runAsync(
-                                    () -> {
-                                        try {
-                                            strategy.execute(dataMap, idempotencyKey);
-                                        } catch (Exception e) {
-                                            throw new RuntimeException(e);
-                                        }
-                                    },
-                                    TASK_EXECUTOR
+                                    () ->
+                                            strategy.execute(dataMap, idempotencyKey),TASK_EXECUTOR
                             );
 
                             // Block and wait until completion or timeout
@@ -141,8 +135,38 @@ public class DynamicJob implements Job {
         } catch (Exception e) {
             log.error("Unhandled exception processing execution for job [{}]", jobName, e);
             JobExecutionException jex = new JobExecutionException(e);
-            jex.setRefireImmediately(false); // Rely on next scheduled cron trigger or manual replay
+            jex.setRefireImmediately(false); // បើកំណត់ true៖ ប្រាប់ Quartz ថា "Job នេះទើបតែ Crash/Error! សូមរត់វាឡើងវិញភ្លាមៗនៅនឹងកន្លែង។"
+                                            //បើកំណត់ false (ដូចក្នុង Code របស់អ្នក)៖ ប្រាប់ Quartz ថា "កុំរត់វាឡើងវិញភ្លាមៗ! យើងបានចាត់ចែងការ Retry រួចហើយតាមរយៈ Spring Retry
             throw jex;
         }
     }
+
+  /***
+   * setRefireImmediately(false) មិនបានរារាំង Quartz ពីការដំណើរការ Misfire នោះទេ។ Misfire និង setRefireImmediately គឺជាមុខងារពីរខុសគ្នាទាំងស្រុងនៅក្នុង Quartz៖
+   *
+   * តើ setRefireImmediately(false) ធ្វើការអ្វីពិតប្រាកដ?
+   * setRefireImmediately គ្រប់គ្រង Exception (កំហុស) ដែលកើតឡើងពេលកំពុង រត់ (Runtime Exception) មិនមែនគ្រប់គ្រង Misfire ទេ៖
+   *
+   * វាប្រាប់ Quartz ពីអ្វីត្រូវធ្វើ នៅពេលដែល Job ទម្លាក់ JobExecutionException ពេលកំពុង run។
+   *
+   * បើកំណត់ true៖ ប្រាប់ Quartz ថា "Job នេះទើបតែ Crash/Error! សូមរត់វាឡើងវិញភ្លាមៗនៅនឹងកន្លែង។"
+   *
+   * បើកំណត់ false (ដូចក្នុង Code របស់អ្នក)៖ ប្រាប់ Quartz ថា "កុំរត់វាឡើងវិញភ្លាមៗ! យើងបានចាត់ចែងការ Retry រួចហើយតាមរយៈ Spring Retry។"
+   *
+   * តើ Quartz គ្រប់គ្រង Misfire យ៉ាងដូចម្តេច?
+   * Misfire កើតឡើង មុនពេល Job ចាប់ផ្តើមរត់ (ឧទាហរណ៍៖ Server ត្រូវបានបិទ ឬ Thread ពេញ ពេលដល់ម៉ោងត្រូវរត់)។
+   *
+   * ការងារ Misfire ត្រូវបានគ្រប់គ្រងដោយ Misfire Instruction របស់ Trigger (មិនមែន setRefireImmediately ទេ) ដូចជា៖
+   *
+   * MISFIRE_INSTRUCTION_FIRE_ONCE_NOW៖ រត់ Job ដែលខកខាននោះភ្លាមៗ នៅពេល Server ដំណើរការឡើងវិញ។
+   *
+   * MISFIRE_INSTRUCTION_DO_NOTHING៖ រំលងការរត់ដែលខកខាន ហើយរង់ចាំម៉ោង Cron បន្ទាប់ទៀត។
+   *
+   * ហេតុអ្វីបានជា setRefireImmediately(false) ជាជម្រើសត្រឹមត្រូវក្នុង Code របស់អ្នក?
+   * Spring Retry បានចាត់ចែងការ Retry រួចហើយ៖ នៅក្នុង DynamicJob របស់លោកអ្នក មាន jobRetryTemplate ដែលព្យាយាមរត់ឡើងវិញនៅពេលមានបញ្ហា។
+   *
+   * ការពារការ Retry ជាន់គ្នា (Duplicate Retry Loop)៖ ប្រសិនបើអ្នកដាក់ true នោះ Quartz នឹងបង្ខំឱ្យរត់ឡើងវិញភ្លាមៗ បន្ថែមលើ Spring Retry ដែលនាំឱ្យមានការរត់ជាន់គ្នាច្រើនដង។
+   *
+   * Misfire នៅតែធ្វើការធម្មតា៖ ប្រសិនបើ Quartz ខកខានម៉ោងរត់ QuartzMisfireListener របស់អ្នកនៅតែចាប់បាន ហើយ Misfire Policy របស់ Trigger នឹងនៅតែដំណើរការជាធម្មតា។
+   */
 }
