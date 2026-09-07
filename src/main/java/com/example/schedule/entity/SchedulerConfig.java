@@ -5,6 +5,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "scheduler_config")
@@ -56,6 +57,19 @@ public class SchedulerConfig {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
+
+    public LocalDate getEndDate() {
+        return endDate;
+    }
+
+    public void setEndDate(LocalDate endDate) {
+        this.endDate = endDate;
+    }
+
+    @Column(name = "end_at")
+    private LocalDate endDate;
+
+
 
     @Version
     @Column(name = "version", nullable = false)

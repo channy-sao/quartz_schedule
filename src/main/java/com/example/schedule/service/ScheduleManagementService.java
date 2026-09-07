@@ -56,6 +56,7 @@ public class ScheduleManagementService {
         config.setJobData(toJobDataJson(request));
         config.setEnabled(true);
         config.setCreatedBy(createdBy);
+        config.setEndDate(request.endDate());
 
         SchedulerConfig saved = configRepository.saveAndFlush(config);
 
@@ -199,11 +200,16 @@ public class ScheduleManagementService {
 
         CronScheduleBuilder scheduleBuilder = buildCronSchedule(config);
 
-        CronTrigger trigger = TriggerBuilder.newTrigger()
+        TriggerBuilder<CronTrigger> triggerBuilder = TriggerBuilder.newTrigger()
                 .withIdentity(triggerKey)
                 .forJob(jobDetail)
-                .withSchedule(scheduleBuilder)
-                .build();
+                .withSchedule(scheduleBuilder);
+
+        if (config.getEndDate() != null) {
+            triggerBuilder.endAt(java.sql.Date.valueOf(config.getEndDate()));
+        }
+
+        CronTrigger trigger = triggerBuilder.build();
 
         scheduler.scheduleJob(jobDetail, trigger);
     }
@@ -280,6 +286,7 @@ public class ScheduleManagementService {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private Map<String, Object> fromJson(String json) {
         try {
             return json == null ? new HashMap<>() : objectMapper.readValue(json, HashMap.class);

@@ -1,6 +1,9 @@
 package com.example.schedule.dto;
 
+import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotBlank;
+
+import java.time.LocalDate;
 
 public record CreateScheduleRequest(
         @NotBlank String jobName,
@@ -11,5 +14,6 @@ public record CreateScheduleRequest(
         String recipient,
         String webhookUrl,
         String businessName,
-        String description
+        String description,
+        LocalDate endDate
 ) {}
