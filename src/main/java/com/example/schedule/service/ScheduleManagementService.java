@@ -11,6 +11,7 @@ import com.example.schedule.exception.ScheduleNotFoundException;
 import com.example.schedule.job.DynamicJob;
 import com.example.schedule.repository.JobExecutionLogRepository;
 import com.example.schedule.repository.SchedulerConfigRepository;
+import com.example.schedule.utils.JobNameGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.quartz.*;
 import org.springframework.stereotype.Service;
@@ -42,12 +43,10 @@ public class ScheduleManagementService {
     @Transactional
     public SchedulerConfig createSchedule(CreateScheduleRequest request, String createdBy) {
 
-        if (configRepository.existsByJobName(request.jobName())) {
-            throw new IllegalArgumentException("Job already exists: " + request.jobName());
-        }
+        String jobName = JobNameGenerator.generate();
 
         SchedulerConfig config = new SchedulerConfig();
-        config.setJobName(request.jobName());
+        config.setJobName(jobName);
         config.setJobType(request.jobType());
         config.setBusinessName(request.businessName());
         config.setDescription(request.description());
@@ -64,7 +63,7 @@ public class ScheduleManagementService {
             registerWithQuartz(saved);
         } catch (Exception e) {
             // Throwing here rolls back the saveAndFlush above (same @Transactional method)
-            throw new ScheduleCreationException("Failed to register job with Quartz: " + request.jobName(), e);
+            throw new ScheduleCreationException("Failed to register job with Quartz: " + jobName, e);
         }
 
         return saved;
@@ -194,6 +193,7 @@ public class ScheduleManagementService {
 
         JobDetail jobDetail = JobBuilder.newJob(DynamicJob.class)
                 .withIdentity(jobKey)
+                .withDescription(config.getDescription())
                 .storeDurably()
                 .usingJobData(buildJobDataMap(config))
                 .build();
