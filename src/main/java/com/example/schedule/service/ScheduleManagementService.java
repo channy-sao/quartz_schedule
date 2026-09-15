@@ -11,21 +11,28 @@ import com.example.schedule.exception.ScheduleNotFoundException;
 import com.example.schedule.job.DynamicJob;
 import com.example.schedule.repository.JobExecutionLogRepository;
 import com.example.schedule.repository.SchedulerConfigRepository;
+import com.example.schedule.utils.CronWarningUtil;
 import com.example.schedule.utils.JobNameGenerator;
+import com.example.schedule.utils.QuartzCronUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.quartz.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
 
 @Service
 public class ScheduleManagementService {
+
+    private static final Logger log = LoggerFactory.getLogger(ScheduleManagementService.class);
 
     private static final String TRIGGER_SUFFIX = "-trigger";
 
@@ -45,16 +52,20 @@ public class ScheduleManagementService {
 
         String jobName = JobNameGenerator.generate();
 
+        String cronExpression = buildCronExpression(request.toCronBuilderRequest(), jobName);
+
         SchedulerConfig config = new SchedulerConfig();
         config.setJobName(jobName);
         config.setJobType(request.jobType());
         config.setBusinessName(request.businessName());
         config.setDescription(request.description());
-        config.setCronExpression(request.cronExpression());
+        config.setCronExpression(cronExpression);
         config.setTimezone(request.timezone());
         config.setJobData(toJobDataJson(request));
         config.setEnabled(true);
         config.setCreatedBy(createdBy);
+        // NOTE: requires a startDate field on SchedulerConfig alongside the existing endDate.
+        config.setStartDate(request.startDate());
         config.setEndDate(request.endDate());
 
         SchedulerConfig saved = configRepository.saveAndFlush(config);
@@ -75,9 +86,13 @@ public class ScheduleManagementService {
         SchedulerConfig config = configRepository.findByJobName(jobName)
                 .orElseThrow(() -> new ScheduleNotFoundException("Schedule not found: " + jobName));
 
-        config.setCronExpression(request.cronExpression());
+        String cronExpression = buildCronExpression(request.toCronBuilderRequest(), jobName);
+
+        config.setCronExpression(cronExpression);
         config.setTimezone(request.timezone());
         config.setJobData(toJobDataJson(request));
+        config.setStartDate(request.startDate());
+        config.setEndDate(request.endDate());
         config.setUpdatedBy(updatedBy);
         config.setChangeReason(request.changeReason());
 
@@ -187,6 +202,30 @@ public class ScheduleManagementService {
 
     // --- internal helpers ---
 
+    /**
+     * Builds the Quartz cron expression from the friendly request and logs any advisory
+     * warnings (e.g. very high frequency, an end date already in the past, no time supplied so
+     * it's defaulting to 10 PM). Invalid combinations (missing dayOfMonth, missing startDate for
+     * a type that needs it, etc.) surface as IllegalArgumentException, which should map to a 400
+     * response via your global exception handler.
+     */
+    private String buildCronExpression(com.example.schedule.dto.CronBuilderRequest cronBuilderRequest, String jobName) {
+
+        String cronExpression;
+        try {
+            cronExpression = QuartzCronUtil.build(cronBuilderRequest);
+        } catch (IllegalArgumentException e) {
+            throw new ScheduleCreationException("Invalid schedule configuration: " + e.getMessage(), e);
+        }
+
+        List<String> warnings = CronWarningUtil.check(cronBuilderRequest, cronExpression);
+        if (!warnings.isEmpty()) {
+            log.warn("Schedule {} built with warnings: {}", jobName, warnings);
+        }
+
+        return cronExpression;
+    }
+
     private void registerWithQuartz(SchedulerConfig config) throws SchedulerException {
         JobKey jobKey = JobKey.jobKey(config.getJobName());
         TriggerKey triggerKey = TriggerKey.triggerKey(config.getJobName() + TRIGGER_SUFFIX);
@@ -204,6 +243,10 @@ public class ScheduleManagementService {
                 .withIdentity(triggerKey)
                 .forJob(jobDetail)
                 .withSchedule(scheduleBuilder);
+
+        if (config.getStartDate() != null) {
+            triggerBuilder.startAt(java.sql.Date.valueOf(config.getStartDate()));
+        }
 
         if (config.getEndDate() != null) {
             triggerBuilder.endAt(java.sql.Date.valueOf(config.getEndDate()));
@@ -230,13 +273,20 @@ public class ScheduleManagementService {
 
         scheduler.addJob(updated, true);
 
-        CronTrigger newTrigger = TriggerBuilder.newTrigger()
+        TriggerBuilder<CronTrigger> triggerBuilder = TriggerBuilder.newTrigger()
                 .withIdentity(triggerKey)
                 .forJob(jobKey)
-                .withSchedule(buildCronSchedule(config))
-                .build();
+                .withSchedule(buildCronSchedule(config));
 
-        scheduler.rescheduleJob(triggerKey, newTrigger);
+        if (config.getStartDate() != null) {
+            triggerBuilder.startAt(java.sql.Date.valueOf(config.getStartDate()));
+        }
+
+        if (config.getEndDate() != null) {
+            triggerBuilder.endAt(java.sql.Date.valueOf(config.getEndDate()));
+        }
+
+        scheduler.rescheduleJob(triggerKey, triggerBuilder.build());
     }
 
     private CronScheduleBuilder buildCronSchedule(SchedulerConfig config) {

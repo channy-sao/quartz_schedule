@@ -69,6 +69,16 @@ public class SchedulerConfig {
     @Column(name = "end_at")
     private LocalDate endDate;
 
+    public LocalDate getStartDate() {
+        return startDate;
+    }
+
+    public void setStartDate(LocalDate startDate) {
+        this.startDate = startDate;
+    }
+
+    @Column(name = "start_at")
+    private LocalDate startDate;
 
 
     @Version

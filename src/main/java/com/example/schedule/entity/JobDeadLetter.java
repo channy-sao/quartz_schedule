@@ -1,6 +1,9 @@
 package com.example.schedule.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.Instant;
 
 @Entity
@@ -20,6 +23,7 @@ public class JobDeadLetter {
     @Column(name = "scheduled_fire_time", nullable = false)
     private Instant scheduledFireTime;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "job_data", columnDefinition = "jsonb", nullable = false)
     private String jobData;
 
