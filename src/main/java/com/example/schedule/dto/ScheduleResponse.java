@@ -13,6 +13,8 @@ public record ScheduleResponse(
         Instant previousFireTime,
         String lastExecutionStatus,
         Long lastExecutionDurationMs,
+        long totalExecution,
+        long successCount,
         long failureCount,
         String createdBy,
         String updatedBy,

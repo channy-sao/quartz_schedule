@@ -11,4 +11,6 @@ public interface JobExecutionLogRepository extends JpaRepository<JobExecutionLog
     // Count total failures for a specific job
     long countByJobNameAndStatus(String jobName, String status);
     long countByStatus(String status);
+    // Count total executions regardless of status
+    long countByJobName(String jobName);
 }

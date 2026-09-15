@@ -175,6 +175,8 @@ public class ScheduleManagementService {
             // Fetch latest execution log and failure metrics
             Optional<JobExecutionLog> lastLogOpt = logRepository.findFirstByJobNameOrderByStartedAtDesc(jobName);
             long failureCount = logRepository.countByJobNameAndStatus(jobName, "FAILED");
+            long successCount = logRepository.countByJobNameAndStatus(jobName, "SUCCESS");
+            long totalCount = logRepository.countByJobName(jobName);
 
             String lastExecutionStatus = lastLogOpt.map(JobExecutionLog::getStatus).orElse("NEVER_EXECUTED");
             Long durationMs = calculateDurationMs(lastLogOpt.orElse(null));
@@ -190,6 +192,8 @@ public class ScheduleManagementService {
                     trigger != null ? toInstant(trigger.getPreviousFireTime()) : null,
                     lastExecutionStatus,
                     durationMs,
+                    totalCount,
+                    successCount,
                     failureCount,
                     config.getCreatedBy(),
                     config.getUpdatedBy(),
