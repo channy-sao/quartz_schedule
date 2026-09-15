@@ -6,7 +6,7 @@ spring:
     name: schedule
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/scheduler
+    url: jdbc:postgresql://localhost:5432/schedule
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
@@ -19,11 +19,15 @@ spring:
       hibernate:
         format_sql: true
 
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    enabled: true
+
   quartz:
     job-store-type: jdbc
 
     jdbc:
-      initialize-schema: always
+      initialize-schema: never
 
     properties:
       org:

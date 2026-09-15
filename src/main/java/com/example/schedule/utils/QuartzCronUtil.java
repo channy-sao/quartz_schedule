@@ -1,554 +1,491 @@
 package com.example.schedule.utils;
 
 import com.example.schedule.dto.CronBuilderRequest;
-import org.quartz.CronExpression;
-
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import org.quartz.CronExpression;
 
 public final class QuartzCronUtil {
 
-    private static final DateTimeFormatter TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("HH:mm");
+  private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
-    private QuartzCronUtil() {
-    }
+  /** Default processing time when the user doesn't pick one: 10:00 PM. */
+  public static final LocalTime DEFAULT_PROCESS_TIME = LocalTime.of(22, 0);
 
-    /**
-     * Build a Quartz Cron expression from a user-friendly request.
-     */
-    public static String build(CronBuilderRequest request) {
+  private QuartzCronUtil() {}
 
-        Objects.requireNonNull(request, "Cron request cannot be null");
-        Objects.requireNonNull(request.type(), "Cron schedule type is required");
+  /**
+   * Build a Quartz Cron expression from a user-friendly request.
+   *
+   * <p>Note: the returned expression encodes the RECURRENCE PATTERN only. request.startDate() /
+   * request.endDate() are validated here but must be applied separately on the Quartz Trigger
+   * (TriggerBuilder.startAt(...)/.endAt(...)) by the caller that actually schedules the job.
+   */
+  public static String build(CronBuilderRequest request) {
 
-        String expression = switch (request.type()) {
+    Objects.requireNonNull(request, "Cron request cannot be null");
+    Objects.requireNonNull(request.type(), "Cron schedule type is required");
 
-            case EVERY_SECOND ->
-                    everySecond();
+    validateDateRange(request.startDate(), request.endDate());
 
-            case EVERY_MINUTE ->
-                    everyMinute();
+    String expression =
+        switch (request.type()) {
+          case EVERY_SECOND -> everySecond();
 
-            case EVERY_HOUR ->
-                    everyHour();
+          case EVERY_MINUTE -> everyMinute();
 
-            case DAILY ->
-                    daily(request);
+          case EVERY_HOUR -> everyHour();
 
-            case WEEKLY ->
-                    weekly(request);
+          case DAILY -> daily(request);
 
-            case MONTHLY ->
-                    monthly(request);
+          case WEEKLY -> weekly(request);
 
-            case YEARLY ->
-                    yearly(request);
+          case MONTHLY -> monthly(request);
 
-            case SPECIFIC_DATE ->
-                    specificDate(request);
+          case EVERY_3_MONTHS -> everyNMonths(request, 3);
 
-            case SPECIFIC_TIME ->
-                    specificTime(request);
+          case EVERY_6_MONTHS -> everyNMonths(request, 6);
 
-            case CUSTOM ->
-                    custom(request);
+          case YEARLY -> yearly(request);
+
+          case SPECIFIC_DATE -> specificDate(request);
+
+          case SPECIFIC_TIME -> specificTime(request);
+
+          case CUSTOM -> custom(request);
         };
 
-        validate(expression);
+    validate(expression);
 
-        return expression;
+    return expression;
+  }
+
+  /**
+   * Every second.
+   *
+   * <p>0/1 * * * * ?
+   */
+  private static String everySecond() {
+    return "0/1 * * * * ?";
+  }
+
+  /**
+   * Every minute.
+   *
+   * <p>0 * * * * ?
+   */
+  private static String everyMinute() {
+    return "0 * * * * ?";
+  }
+
+  /**
+   * Every hour.
+   *
+   * <p>0 0 * * * ?
+   */
+  private static String everyHour() {
+    return "0 0 * * * ?";
+  }
+
+  /**
+   * Daily at HH:mm (defaults to 22:00 if no time given).
+   *
+   * <p>Start/end date come from request.startDate()/endDate() and belong on the Trigger, not here.
+   *
+   * <p>Example: (no time given)
+   *
+   * <p>Result: 0 0 22 * * ?
+   */
+  private static String daily(CronBuilderRequest request) {
+
+    LocalTime time = resolveTime(request.time());
+
+    return String.format("0 %d %d * * ?", time.getMinute(), time.getHour());
+  }
+
+  /**
+   * Weekly at HH:mm (defaults to 22:00 if no time given).
+   *
+   * <p>Example:
+   *
+   * <p>daysOfWeek = [MON, WED, FRI]
+   *
+   * <p>Result:
+   *
+   * <p>0 0 22 ? * MON,WED,FRI
+   */
+  private static String weekly(CronBuilderRequest request) {
+
+    LocalTime time = resolveTime(request.time());
+
+    String days = buildDaysOfWeek(request.daysOfWeek());
+
+    return String.format("0 %d %d ? * %s", time.getMinute(), time.getHour(), days);
+  }
+
+  /**
+   * Monthly at HH:mm on a given day of month (defaults to 22:00 if no time given).
+   *
+   * <p>Example:
+   *
+   * <p>dayOfMonth = 15
+   *
+   * <p>Result:
+   *
+   * <p>0 0 22 15 * ?
+   *
+   * <p>Supports:
+   *
+   * <p>1 15 L LW 15W L-3
+   */
+  private static String monthly(CronBuilderRequest request) {
+
+    LocalTime time = resolveTime(request.time());
+
+    String dayOfMonth = requireValue(request.dayOfMonth(), "dayOfMonth");
+
+    return String.format("0 %d %d %s * ?", time.getMinute(), time.getHour(), dayOfMonth);
+  }
+
+  /**
+   * Every N months (used for EVERY_3_MONTHS and EVERY_6_MONTHS) on a given day of month, defaulting
+   * to 22:00 if no time given. The recurring months are anchored off request.startDate()'s month,
+   * e.g. a March start with interval 3 fires in March/June/September/December.
+   *
+   * <p>Example:
+   *
+   * <p>startDate = 2026-03-10, dayOfMonth = 10, interval = 3
+   *
+   * <p>Result:
+   *
+   * <p>0 0 22 10 3,6,9,12 ?
+   */
+  private static String everyNMonths(CronBuilderRequest request, int intervalMonths) {
+
+    LocalTime time = resolveTime(request.time());
+
+    String dayOfMonth = requireValue(request.dayOfMonth(), "dayOfMonth");
+
+    String months = monthsForInterval(requireStartDate(request), intervalMonths);
+
+    return String.format("0 %d %d %s %s ?", time.getMinute(), time.getHour(), dayOfMonth, months);
+  }
+
+  /**
+   * Yearly ("Annually") at HH:mm on a given day of month (defaults to 22:00 if no time given). The
+   * month comes from request.month() when supplied, otherwise it's derived from
+   * request.startDate()'s month.
+   *
+   * <p>Example:
+   *
+   * <p>dayOfMonth = 1 startDate = 2026-01-15 (month not explicitly supplied)
+   *
+   * <p>Result:
+   *
+   * <p>0 0 22 1 1 ?
+   */
+  private static String yearly(CronBuilderRequest request) {
+
+    LocalTime time = resolveTime(request.time());
+
+    String dayOfMonth = requireValue(request.dayOfMonth(), "dayOfMonth");
+
+    String month =
+        (request.month() != null && !request.month().isBlank())
+            ? request.month()
+            : String.valueOf(requireStartDate(request).getMonthValue());
+
+    return String.format("0 %d %d %s %s ?", time.getMinute(), time.getHour(), dayOfMonth, month);
+  }
+
+  /**
+   * "One Time": specific date and time, defaulting to 22:00 if no time given.
+   *
+   * <p>Example:
+   *
+   * <p>date = 2026-09-15
+   *
+   * <p>Result:
+   *
+   * <p>0 0 22 15 9 ? 2026
+   */
+  private static String specificDate(CronBuilderRequest request) {
+
+    if (request.date() == null) {
+      throw new IllegalArgumentException("date is required for SPECIFIC_DATE");
     }
 
-    /**
-     * Every second.
-     *
-     * 0/1 * * * * ?
-     */
-    private static String everySecond() {
-        return "0/1 * * * * ?";
+    String timeValue = request.specificTime() != null ? request.specificTime() : request.time();
+
+    LocalTime time = resolveTime(timeValue);
+
+    LocalDate date = request.date();
+
+    return String.format(
+        "0 %d %d %d %d ? %d",
+        time.getMinute(),
+        time.getHour(),
+        date.getDayOfMonth(),
+        date.getMonthValue(),
+        date.getYear());
+  }
+
+  /**
+   * SPECIFIC_TIME is interpreted as running every day at the specified time.
+   *
+   * <p>Example:
+   *
+   * <p>09:30
+   *
+   * <p>Result:
+   *
+   * <p>0 30 9 * * ?
+   */
+  private static String specificTime(CronBuilderRequest request) {
+
+    String timeValue = request.specificTime() != null ? request.specificTime() : request.time();
+
+    LocalTime time = resolveTime(timeValue);
+
+    return String.format("0 %d %d * * ?", time.getMinute(), time.getHour());
+  }
+
+  /**
+   * Build a completely custom Quartz Cron expression.
+   *
+   * <p>Supports all Quartz syntax such as:
+   *
+   * <p>* ? , - / L W LW #
+   *
+   * <p>Examples:
+   *
+   * <p>0 0/15 9-17 ? * MON-FRI
+   *
+   * <p>0 0 9 ? * MON#2
+   *
+   * <p>0 0 23 L * ?
+   */
+  private static String custom(CronBuilderRequest request) {
+
+    String seconds = requireValue(request.seconds(), "seconds");
+
+    String minutes = requireValue(request.minutes(), "minutes");
+
+    String hours = requireValue(request.hours(), "hours");
+
+    String dayOfMonth = requireValue(request.dayOfMonthExpression(), "dayOfMonthExpression");
+    String dayOfWeek = requireValue(request.dayOfWeek(), "dayOfWeek");
+
+    boolean domIsWildcard = dayOfMonth.equals("?");
+    boolean dowIsWildcard = dayOfWeek.equals("?");
+
+    if (!domIsWildcard && !dowIsWildcard) {
+      throw new IllegalArgumentException(
+          "Quartz cron requires either dayOfMonthExpression or dayOfWeek to be '?' — both cannot be specific values at once.");
     }
 
-    /**
-     * Every minute.
-     *
-     * 0 * * * * ?
-     */
-    private static String everyMinute() {
-        return "0 * * * * ?";
+    String month = requireValue(request.month(), "month");
+
+    String expression =
+        String.join(
+            " ",
+            normalize(seconds),
+            normalize(minutes),
+            normalize(hours),
+            normalize(dayOfMonth),
+            normalize(month),
+            normalize(dayOfWeek));
+
+    if (request.year() != null && !request.year().isBlank()) {
+
+      expression += " " + normalize(request.year());
     }
 
-    /**
-     * Every hour.
-     *
-     * 0 0 * * * ?
-     */
-    private static String everyHour() {
-        return "0 0 * * * ?";
+    return expression;
+  }
+
+  /** Validate Quartz Cron expression. */
+  public static void validate(String expression) {
+
+    if (expression == null || expression.isBlank()) {
+      throw new IllegalArgumentException("Cron expression cannot be blank");
     }
 
-    /**
-     * Daily at HH:mm.
-     *
-     * Example:
-     * 09:30
-     *
-     * Result:
-     * 0 30 9 * * ?
-     */
-    private static String daily(CronBuilderRequest request) {
+    if (!CronExpression.isValidExpression(expression)) {
 
-        LocalTime time = parseTime(request.time());
+      throw new IllegalArgumentException("Invalid Quartz Cron expression: " + expression);
+    }
+  }
 
-        return String.format(
-                "0 %d %d * * ?",
-                time.getMinute(),
-                time.getHour()
-        );
+  /** Calculate next execution time. */
+  public static ZonedDateTime getNextExecution(String expression, String timezone) {
+
+    validate(expression);
+
+    ZoneId zoneId = getZoneId(timezone);
+
+    CronExpression cron = createCronExpression(expression, zoneId);
+
+    Date next = cron.getNextValidTimeAfter(new Date());
+
+    if (next == null) {
+      return null;
     }
 
-    /**
-     * Weekly at HH:mm.
-     *
-     * Example:
-     *
-     * daysOfWeek = [MON, WED, FRI]
-     * time = 09:30
-     *
-     * Result:
-     *
-     * 0 30 9 ? * MON,WED,FRI
-     */
-    private static String weekly(CronBuilderRequest request) {
+    return next.toInstant().atZone(zoneId);
+  }
 
-        LocalTime time = parseTime(request.time());
+  /** Calculate multiple upcoming execution times. */
+  public static List<ZonedDateTime> getNextExecutions(
+      String expression, String timezone, int count) {
 
-        String days = buildDaysOfWeek(request.daysOfWeek());
-
-        return String.format(
-                "0 %d %d ? * %s",
-                time.getMinute(),
-                time.getHour(),
-                days
-        );
+    if (count <= 0) {
+      throw new IllegalArgumentException("count must be greater than zero");
     }
 
-    /**
-     * Monthly at HH:mm.
-     *
-     * Example:
-     *
-     * dayOfMonth = 15
-     * time = 09:30
-     *
-     * Result:
-     *
-     * 0 30 9 15 * ?
-     *
-     * Supports:
-     *
-     * 1
-     * 15
-     * L
-     * LW
-     * 15W
-     * L-3
-     */
-    private static String monthly(CronBuilderRequest request) {
-
-        LocalTime time = parseTime(request.time());
-
-        String dayOfMonth =
-                requireValue(
-                        request.dayOfMonth(),
-                        "dayOfMonth"
-                );
-
-        return String.format(
-                "0 %d %d %s * ?",
-                time.getMinute(),
-                time.getHour(),
-                dayOfMonth
-        );
+    if (count > 100) {
+      throw new IllegalArgumentException("count cannot be greater than 100");
     }
 
-    /**
-     * Yearly at HH:mm.
-     *
-     * Example:
-     *
-     * dayOfMonth = 1
-     * month = JAN
-     * time = 09:00
-     *
-     * Result:
-     *
-     * 0 0 9 1 JAN ?
-     */
-    private static String yearly(CronBuilderRequest request) {
+    validate(expression);
 
-        LocalTime time = parseTime(request.time());
+    ZoneId zoneId = getZoneId(timezone);
 
-        String dayOfMonth =
-                requireValue(
-                        request.dayOfMonth(),
-                        "dayOfMonth"
-                );
+    CronExpression cron = createCronExpression(expression, zoneId);
 
-        String month =
-                requireValue(
-                        request.month(),
-                        "month"
-                );
+    final Date[] current = {new Date()};
 
-        return String.format(
-                "0 %d %d %s %s ?",
-                time.getMinute(),
-                time.getHour(),
-                dayOfMonth,
-                month
-        );
+    return java.util.stream.IntStream.range(0, count)
+        .mapToObj(
+            i -> {
+              Date next = cron.getNextValidTimeAfter(current[0]);
+
+              if (next == null) {
+                return null;
+              }
+
+              current[0] = next;
+
+              return next.toInstant().atZone(zoneId);
+            })
+        .filter(Objects::nonNull)
+        .collect(Collectors.toList());
+  }
+
+  private static CronExpression createCronExpression(String expression, ZoneId zoneId) {
+
+    try {
+
+      CronExpression cron = new CronExpression(expression);
+
+      cron.setTimeZone(java.util.TimeZone.getTimeZone(zoneId));
+
+      return cron;
+
+    } catch (Exception e) {
+
+      throw new IllegalArgumentException("Failed to create Quartz Cron expression", e);
+    }
+  }
+
+  /** Parses HH:mm, or falls back to DEFAULT_PROCESS_TIME (22:00) when blank/null. */
+  private static LocalTime resolveTime(String value) {
+
+    if (value == null || value.isBlank()) {
+      return DEFAULT_PROCESS_TIME;
     }
 
-    /**
-     * Specific date and time.
-     *
-     * Example:
-     *
-     * date = 2026-09-15
-     * specificTime = 09:30
-     *
-     * Result:
-     *
-     * 0 30 9 15 9 ? 2026
-     */
-    private static String specificDate(CronBuilderRequest request) {
+    try {
 
-        if (request.date() == null) {
-            throw new IllegalArgumentException(
-                    "date is required for SPECIFIC_DATE"
-            );
-        }
+      return LocalTime.parse(value, TIME_FORMATTER);
 
-        String timeValue =
-                request.specificTime() != null
-                        ? request.specificTime()
-                        : request.time();
+    } catch (DateTimeParseException e) {
 
-        LocalTime time = parseTime(timeValue);
+      throw new IllegalArgumentException("Invalid time: " + value + ". Expected HH:mm", e);
+    }
+  }
 
-        LocalDate date = request.date();
+  private static String buildDaysOfWeek(List<String> days) {
 
-        return String.format(
-                "0 %d %d %d %d ? %d",
-                time.getMinute(),
-                time.getHour(),
-                date.getDayOfMonth(),
-                date.getMonthValue(),
-                date.getYear()
-        );
+    if (days == null || days.isEmpty()) {
+
+      throw new IllegalArgumentException("daysOfWeek is required for WEEKLY");
     }
 
-    /**
-     * SPECIFIC_TIME is interpreted as running every day
-     * at the specified time.
-     *
-     * Example:
-     *
-     * 09:30
-     *
-     * Result:
-     *
-     * 0 30 9 * * ?
-     */
-    private static String specificTime(CronBuilderRequest request) {
+    return days.stream()
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .collect(Collectors.joining(","));
+  }
 
-        String timeValue =
-                request.specificTime() != null
-                        ? request.specificTime()
-                        : request.time();
+  /**
+   * Builds the comma-separated Quartz month list for an N-month interval anchored to the given
+   * start date, e.g. startDate month = 3 (March), interval = 3 -> "3,6,9,12".
+   */
+  private static String monthsForInterval(LocalDate startDate, int intervalMonths) {
 
-        LocalTime time = parseTime(timeValue);
+    int anchor = startDate.getMonthValue();
 
-        return String.format(
-                "0 %d %d * * ?",
-                time.getMinute(),
-                time.getHour()
-        );
+    List<Integer> months = new ArrayList<>();
+
+    for (int m = anchor; m <= 12; m += intervalMonths) {
+      months.add(m);
     }
 
-    /**
-     * Build a completely custom Quartz Cron expression.
-     *
-     * Supports all Quartz syntax such as:
-     *
-     * *
-     * ?
-     * ,
-     * -
-     * /
-     * L
-     * W
-     * LW
-     * #
-     *
-     * Examples:
-     *
-     * 0 0/15 9-17 ? * MON-FRI
-     *
-     * 0 0 9 ? * MON#2
-     *
-     * 0 0 23 L * ?
-     */
-    private static String custom(CronBuilderRequest request) {
+    return months.stream().map(String::valueOf).collect(Collectors.joining(","));
+  }
 
-        String seconds =
-                requireValue(request.seconds(), "seconds");
+  private static LocalDate requireStartDate(CronBuilderRequest request) {
 
-        String minutes =
-                requireValue(request.minutes(), "minutes");
-
-        String hours =
-                requireValue(request.hours(), "hours");
-
-        String dayOfMonth = requireValue(request.dayOfMonthExpression(), "dayOfMonthExpression");
-        String dayOfWeek = requireValue(request.dayOfWeek(), "dayOfWeek");
-
-        boolean domIsWildcard = dayOfMonth.equals("?");
-        boolean dowIsWildcard = dayOfWeek.equals("?");
-
-        if (!domIsWildcard && !dowIsWildcard) {
-            throw new IllegalArgumentException(
-                    "Quartz cron requires either dayOfMonthExpression or dayOfWeek to be '?' — both cannot be specific values at once.");
-        }
-
-        String month =
-                requireValue(request.month(), "month");
-
-
-        String expression = String.join(
-                " ",
-                normalize(seconds),
-                normalize(minutes),
-                normalize(hours),
-                normalize(dayOfMonth),
-                normalize(month),
-                normalize(dayOfWeek)
-        );
-
-        if (request.year() != null
-                && !request.year().isBlank()) {
-
-            expression += " " + normalize(request.year());
-        }
-
-        return expression;
+    if (request.startDate() == null) {
+      throw new IllegalArgumentException("startDate is required for this schedule type");
     }
 
-    /**
-     * Validate Quartz Cron expression.
-     */
-    public static void validate(String expression) {
+    return request.startDate();
+  }
 
-        if (expression == null || expression.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Cron expression cannot be blank"
-            );
-        }
+  private static void validateDateRange(LocalDate startDate, LocalDate endDate) {
 
-        if (!CronExpression.isValidExpression(expression)) {
+    if (startDate != null && endDate != null && endDate.isBefore(startDate)) {
 
-            throw new IllegalArgumentException(
-                    "Invalid Quartz Cron expression: " + expression
-            );
-        }
+      throw new IllegalArgumentException("endDate cannot be before startDate");
+    }
+  }
+
+  private static String requireValue(String value, String field) {
+
+    if (value == null || value.isBlank()) {
+
+      throw new IllegalArgumentException(field + " is required");
     }
 
-    /**
-     * Calculate next execution time.
-     */
-    public static ZonedDateTime getNextExecution(
-            String expression,
-            String timezone
-    ) {
+    return value;
+  }
 
-        validate(expression);
+  private static String normalize(String value) {
 
-        ZoneId zoneId = getZoneId(timezone);
+    return value.trim().replaceAll("\\s+", "");
+  }
 
-        CronExpression cron =
-                createCronExpression(expression, zoneId);
+  private static ZoneId getZoneId(String timezone) {
 
-        Date next =
-                cron.getNextValidTimeAfter(new Date());
-
-        if (next == null) {
-            return null;
-        }
-
-        return next.toInstant().atZone(zoneId);
+    if (timezone == null || timezone.isBlank()) {
+      return ZoneId.of("Asia/Phnom_Penh");
     }
 
-    /**
-     * Calculate multiple upcoming execution times.
-     */
-    public static List<ZonedDateTime> getNextExecutions(
-            String expression,
-            String timezone,
-            int count
-    ) {
+    try {
 
-        if (count <= 0) {
-            throw new IllegalArgumentException(
-                    "count must be greater than zero"
-            );
-        }
+      return ZoneId.of(timezone);
 
-        if (count > 100) {
-            throw new IllegalArgumentException(
-                    "count cannot be greater than 100"
-            );
-        }
+    } catch (Exception e) {
 
-        validate(expression);
-
-        ZoneId zoneId = getZoneId(timezone);
-
-        CronExpression cron =
-                createCronExpression(expression, zoneId);
-
-        final Date[] current = {new Date()};
-
-        return java.util.stream.IntStream
-                .range(0, count)
-                .mapToObj(i -> {
-
-                    Date next =
-                            cron.getNextValidTimeAfter(current[0]);
-
-                    if (next == null) {
-                        return null;
-                    }
-
-                    current[0] = next;
-
-                    return next.toInstant().atZone(zoneId);
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+      throw new IllegalArgumentException("Invalid timezone: " + timezone, e);
     }
-
-    private static CronExpression createCronExpression(
-            String expression,
-            ZoneId zoneId
-    ) {
-
-        try {
-
-            CronExpression cron =
-                    new CronExpression(expression);
-
-            cron.setTimeZone(
-                    java.util.TimeZone.getTimeZone(zoneId)
-            );
-
-            return cron;
-
-        } catch (Exception e) {
-
-            throw new IllegalArgumentException(
-                    "Failed to create Quartz Cron expression",
-                    e
-            );
-        }
-    }
-
-    private static LocalTime parseTime(String value) {
-
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(
-                    "time is required"
-            );
-        }
-
-        try {
-
-            return LocalTime.parse(
-                    value,
-                    TIME_FORMATTER
-            );
-
-        } catch (DateTimeParseException e) {
-
-            throw new IllegalArgumentException(
-                    "Invalid time: "
-                            + value
-                            + ". Expected HH:mm",
-                    e
-            );
-        }
-    }
-
-    private static String buildDaysOfWeek(
-            List<String> days
-    ) {
-
-        if (days == null || days.isEmpty()) {
-
-            throw new IllegalArgumentException(
-                    "daysOfWeek is required for WEEKLY"
-            );
-        }
-
-        return days.stream()
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .collect(Collectors.joining(","));
-    }
-
-    private static String requireValue(
-            String value,
-            String field
-    ) {
-
-        if (value == null || value.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    field + " is required"
-            );
-        }
-
-        return value;
-    }
-
-    private static String normalize(String value) {
-
-        return value
-                .trim()
-                .replaceAll("\\s+", "");
-    }
-
-    private static ZoneId getZoneId(String timezone) {
-
-        if (timezone == null || timezone.isBlank()) {
-            return ZoneId.of("Asia/Phnom_Penh");
-        }
-
-        try {
-
-            return ZoneId.of(timezone);
-
-        } catch (Exception e) {
-
-            throw new IllegalArgumentException(
-                    "Invalid timezone: " + timezone,
-                    e
-            );
-        }
-    }
+  }
 }

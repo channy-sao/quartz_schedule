@@ -7,13 +7,14 @@ import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
 import com.example.schedule.dto.CronBuilderRequest;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.util.Locale;
 
 public final class CronDescriptionUtil {
 
   private static final CronParser QUARTZ_PARSER =
-      new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
+          new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
   private CronDescriptionUtil() {}
 
@@ -37,38 +38,56 @@ public final class CronDescriptionUtil {
    */
   public static String describeFriendly(CronBuilderRequest request) {
     final String timeHhmm =
-        request.specificTime() != null ? request.specificTime() : request.time();
+            request.specificTime() != null ? request.specificTime() : request.time();
     return switch (request.type()) {
       case EVERY_SECOND -> "Runs every second.";
       case EVERY_MINUTE -> "Runs every minute, on the minute.";
       case EVERY_HOUR -> "Runs every hour, on the hour.";
-      case DAILY -> "Runs every day at " + friendlyTime(request.time()) + ".";
+      case DAILY ->
+              "Runs every day at " + friendlyTime(request.time()) + "." + windowSuffix(request);
       case WEEKLY ->
-          "Runs every "
-              + joinDays(request.daysOfWeek())
-              + " at "
-              + friendlyTime(request.time())
-              + ".";
+              "Runs every "
+                      + joinDays(request.daysOfWeek())
+                      + " at "
+                      + friendlyTime(request.time())
+                      + "."
+                      + windowSuffix(request);
       case MONTHLY ->
-          "Runs on day "
-              + request.dayOfMonth()
-              + " of every month at "
-              + friendlyTime(request.time())
-              + ".";
+              "Runs on day "
+                      + request.dayOfMonth()
+                      + " of every month at "
+                      + friendlyTime(request.time())
+                      + "."
+                      + windowSuffix(request);
+      case EVERY_3_MONTHS ->
+              "Runs every 3 months on day "
+                      + request.dayOfMonth()
+                      + " at "
+                      + friendlyTime(request.time())
+                      + "."
+                      + windowSuffix(request);
+      case EVERY_6_MONTHS ->
+              "Runs every 6 months on day "
+                      + request.dayOfMonth()
+                      + " at "
+                      + friendlyTime(request.time())
+                      + "."
+                      + windowSuffix(request);
       case YEARLY ->
-          "Runs every year on "
-              + friendlyMonth(request.month())
-              + " "
-              + request.dayOfMonth()
-              + " at "
-              + friendlyTime(request.time())
-              + ".";
+              "Runs every year on "
+                      + friendlyMonth(resolveYearlyMonth(request))
+                      + " "
+                      + request.dayOfMonth()
+                      + " at "
+                      + friendlyTime(request.time())
+                      + "."
+                      + windowSuffix(request);
       case SPECIFIC_DATE ->
-          "Runs once on " + request.date() + " at " + friendlyTime(timeHhmm) + ".";
+              "Runs once on " + request.date() + " at " + friendlyTime(timeHhmm) + ".";
       case SPECIFIC_TIME -> "Runs every day at " + friendlyTime(timeHhmm) + ".";
       case CUSTOM ->
-          null; // fall back to cron-utils describe() for CUSTOM — too many combinations to
-                // hand-write
+              null; // fall back to cron-utils describe() for CUSTOM — too many combinations to
+      // hand-write
     };
   }
 
@@ -94,7 +113,10 @@ public final class CronDescriptionUtil {
   }
 
   private static String friendlyTime(String hhmm) {
-    if (hhmm == null) return "";
+    if (hhmm == null || hhmm.isBlank()) {
+      return QuartzCronUtil.DEFAULT_PROCESS_TIME.format(
+              java.time.format.DateTimeFormatter.ofPattern("h:mm a"));
+    }
     try {
       java.time.LocalTime t = java.time.LocalTime.parse(hhmm);
       return t.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a"));
@@ -103,13 +125,35 @@ public final class CronDescriptionUtil {
     }
   }
 
+  /** Mirrors QuartzCronUtil's yearly() logic: explicit month wins, else derive from startDate. */
+  private static String resolveYearlyMonth(CronBuilderRequest request) {
+    if (request.month() != null && !request.month().isBlank()) {
+      return request.month();
+    }
+    LocalDate startDate = request.startDate();
+    return startDate != null ? String.valueOf(startDate.getMonthValue()) : "";
+  }
+
+  /** Appends the start/end date window, when present, to a friendly description. */
+  private static String windowSuffix(CronBuilderRequest request) {
+    LocalDate startDate = request.startDate();
+    LocalDate endDate = request.endDate();
+    if (startDate != null && endDate != null) {
+      return " (active " + startDate + " to " + endDate + ")";
+    }
+    if (startDate != null) {
+      return " (starting " + startDate + ")";
+    }
+    return "";
+  }
+
   private static String joinDays(java.util.List<String> days) {
     if (days == null || days.isEmpty()) return "";
     if (days.size() == 1) return capitalize(days.get(0));
     String allButLast =
-        days.subList(0, days.size() - 1).stream()
-            .map(CronDescriptionUtil::capitalize)
-            .collect(java.util.stream.Collectors.joining(", "));
+            days.subList(0, days.size() - 1).stream()
+                    .map(CronDescriptionUtil::capitalize)
+                    .collect(java.util.stream.Collectors.joining(", "));
     return allButLast + " and " + capitalize(days.get(days.size() - 1));
   }
 
